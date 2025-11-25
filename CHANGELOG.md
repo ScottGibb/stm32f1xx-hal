@@ -9,7 +9,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ### Breaking changes
 
+- Remove `PULL` generic from `Input` mode [#512]
+  Remove `as_push_pull_output`, `as_opendrain_output` [#512]
+- `rtic2` feature, renamed `rtic` to `rtic1`
 - move pin connecting to timer channels after `Pwm` initialization [#517]
+- `timer.rs` refactoring
 
 ### Changed
 
@@ -18,24 +22,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Add `rcc::Instance` trait [#557]
 - Demacrofy `RxDma`/`TxDma` implementations [#554]
 
-[#553]: https://github.com/stm32-rs/stm32f1xx-hal/pull/553
-[#554]: https://github.com/stm32-rs/stm32f1xx-hal/pull/554
-[#557]: https://github.com/stm32-rs/stm32f1xx-hal/pull/557
-
 ### Added
 
-- `rtic2` feature, renamed `rtic` to `rtic1`
+- timer `Capture` support [#517]
 - `embedded_io::Read` trait implemented for `serial`
 - `dac` example
 
-### Breaking changes
-
-- Remove `PULL` generic from `Input` mode [#512]
-  Remove `as_push_pull_output`, `as_opendrain_output` [#512]
-
 [#512]: https://github.com/stm32-rs/stm32f1xx-hal/pull/512
-
 [#517]: https://github.com/stm32-rs/stm32f1xx-hal/pull/517
+[#553]: https://github.com/stm32-rs/stm32f1xx-hal/pull/553
+[#554]: https://github.com/stm32-rs/stm32f1xx-hal/pull/554
+[#557]: https://github.com/stm32-rs/stm32f1xx-hal/pull/557
 
 ## [v0.11.0] - 2025-09-09
 

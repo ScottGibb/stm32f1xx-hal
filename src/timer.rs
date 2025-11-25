@@ -80,6 +80,8 @@ cfg_select! {
 pub mod delay;
 pub mod pwm_input;
 pub use delay::*;
+pub mod capture;
+pub use capture::*;
 pub mod counter;
 pub use counter::*;
 pub mod pwm;
@@ -406,8 +408,8 @@ mod sealed {
         fn read_cc_value(channel: u8) -> u32;
         fn set_cc_value(channel: u8, value: u32);
         fn enable_channel(channel: u8, b: bool);
-        fn set_channel_polarity(channel: u8, p: Polarity);
-        fn set_nchannel_polarity(channel: u8, p: Polarity);
+        fn set_pwm_channel_polarity(channel: u8, p: Polarity);
+        fn set_pwm_nchannel_polarity(channel: u8, p: Polarity);
 
         fn set_capture_channel_polarity(channel: u8, p: CapturePolarity);
     }
@@ -444,6 +446,11 @@ mod sealed {
         type Channels;
         fn split() -> Self::Channels;
     }
+
+    pub trait SplitCapture {
+        type CaptureChannels;
+        fn split_capture() -> Self::CaptureChannels;
+    }
 }
 pub(crate) use sealed::{Advanced, General, MasterTimer, WithCapture, WithChannel, WithPwm};
 
@@ -452,7 +459,7 @@ pub trait Instance:
 {
 }
 
-use sealed::Split;
+use sealed::{Split, SplitCapture};
 macro_rules! split {
     ($TIM:ty: 1) => {
         split!($TIM, C1);
@@ -470,10 +477,22 @@ macro_rules! split {
                 ($(PwmChannelDisabled::<_, $C, 0>::new(),)+)
             }
         }
+        impl SplitCapture for $TIM {
+            type CaptureChannels = ($(CaptureChannelDisabled<$TIM, $C, 0>,)+);
+            fn split_capture() -> Self::CaptureChannels {
+                ($(CaptureChannelDisabled::<_, $C, 0>::new(),)+)
+            }
+        }
         impl<const R: u8> Split for Rmp<$TIM, R> {
             type Channels = ($(PwmChannelDisabled<$TIM, $C, R>,)+);
             fn split() -> Self::Channels {
                 ($(PwmChannelDisabled::<_, $C, R>::new(),)+)
+            }
+        }
+        impl<const R: u8> SplitCapture for Rmp<$TIM, R> {
+            type CaptureChannels = ($(CaptureChannelDisabled<$TIM, $C, R>,)+);
+            fn split_capture() -> Self::CaptureChannels {
+                ($(CaptureChannelDisabled::<_, $C, R>::new(),)+)
             }
         }
     };
@@ -614,7 +633,7 @@ macro_rules! hal {
                 }
 
                 #[inline(always)]
-                fn set_channel_polarity(c: u8, p: Polarity) {
+                fn set_pwm_channel_polarity(c: u8, p: Polarity) {
                     let tim = unsafe { &*<$TIM>::ptr() };
                     if c < Self::CH_NUMBER {
                         unsafe { bb::write(tim.ccer(), c*4 + 1, p == Polarity::ActiveLow); }
@@ -622,7 +641,7 @@ macro_rules! hal {
                 }
 
                 #[inline(always)]
-                fn set_nchannel_polarity(c: u8, p: Polarity) {
+                fn set_pwm_nchannel_polarity(c: u8, p: Polarity) {
                     let tim = unsafe { &*<$TIM>::ptr() };
                     if c < Self::COMP_CH_NUMBER {
                         unsafe { bb::write(tim.ccer(), c*4 + 3, p == Polarity::ActiveLow); }
