@@ -48,6 +48,7 @@
 */
 #![allow(non_upper_case_globals)]
 
+use crate::afio::Rmp;
 use crate::pac::{self, DBGMCU as DBG};
 use crate::{bb, cfg_if};
 
@@ -76,12 +77,11 @@ cfg_select! {
     }
     _ => {}
 }
-
-pub(crate) mod pins;
-pub mod pwm_input;
-pub use pins::*;
 pub mod delay;
+pub mod pwm_input;
 pub use delay::*;
+pub mod capture;
+pub use capture::*;
 pub mod counter;
 pub use counter::*;
 pub mod pwm;
@@ -104,6 +104,15 @@ pub enum Channel {
     C3 = 2,
     C4 = 3,
 }
+
+pub use crate::afio::{TimC, TimNC};
+
+/// Channel wrapper
+pub struct Ch<const C: u8, const COMP: bool>;
+pub const C1: u8 = 0;
+pub const C2: u8 = 1;
+pub const C3: u8 = 2;
+pub const C4: u8 = 3;
 
 /// Compare/PWM polarity
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -399,8 +408,8 @@ mod sealed {
         fn read_cc_value(channel: u8) -> u32;
         fn set_cc_value(channel: u8, value: u32);
         fn enable_channel(channel: u8, b: bool);
-        fn set_channel_polarity(channel: u8, p: Polarity);
-        fn set_nchannel_polarity(channel: u8, p: Polarity);
+        fn set_pwm_channel_polarity(channel: u8, p: Polarity);
+        fn set_pwm_nchannel_polarity(channel: u8, p: Polarity);
 
         fn set_capture_channel_polarity(channel: u8, p: CapturePolarity);
     }
@@ -432,12 +441,61 @@ mod sealed {
         type Mms;
         fn master_mode(&mut self, mode: Self::Mms);
     }
+
+    pub trait Split {
+        type Channels;
+        fn split() -> Self::Channels;
+    }
+
+    pub trait SplitCapture {
+        type CaptureChannels;
+        fn split_capture() -> Self::CaptureChannels;
+    }
 }
 pub(crate) use sealed::{Advanced, General, MasterTimer, WithCapture, WithChannel, WithPwm};
 
 pub trait Instance:
     rcc::Instance + rcc::RccBus<Bus: BusTimerClock> + rcc::StopInDebug + General
 {
+}
+
+use sealed::{Split, SplitCapture};
+macro_rules! split {
+    ($TIM:ty: 1) => {
+        split!($TIM, C1);
+    };
+    ($TIM:ty: 2) => {
+        split!($TIM, C1, C2);
+    };
+    ($TIM:ty: 4) => {
+        split!($TIM, C1, C2, C3, C4);
+    };
+    ($TIM:ty, $($C:ident),+) => {
+        impl Split for $TIM {
+            type Channels = ($(PwmChannelDisabled<$TIM, $C, 0>,)+);
+            fn split() -> Self::Channels {
+                ($(PwmChannelDisabled::<_, $C, 0>::new(),)+)
+            }
+        }
+        impl SplitCapture for $TIM {
+            type CaptureChannels = ($(CaptureChannelDisabled<$TIM, $C, 0>,)+);
+            fn split_capture() -> Self::CaptureChannels {
+                ($(CaptureChannelDisabled::<_, $C, 0>::new(),)+)
+            }
+        }
+        impl<const R: u8> Split for Rmp<$TIM, R> {
+            type Channels = ($(PwmChannelDisabled<$TIM, $C, R>,)+);
+            fn split() -> Self::Channels {
+                ($(PwmChannelDisabled::<_, $C, R>::new(),)+)
+            }
+        }
+        impl<const R: u8> SplitCapture for Rmp<$TIM, R> {
+            type CaptureChannels = ($(CaptureChannelDisabled<$TIM, $C, R>,)+);
+            fn split_capture() -> Self::CaptureChannels {
+                ($(CaptureChannelDisabled::<_, $C, R>::new(),)+)
+            }
+        }
+    };
 }
 
 macro_rules! hal {
@@ -575,7 +633,7 @@ macro_rules! hal {
                 }
 
                 #[inline(always)]
-                fn set_channel_polarity(c: u8, p: Polarity) {
+                fn set_pwm_channel_polarity(c: u8, p: Polarity) {
                     let tim = unsafe { &*<$TIM>::ptr() };
                     if c < Self::CH_NUMBER {
                         unsafe { bb::write(tim.ccer(), c*4 + 1, p == Polarity::ActiveLow); }
@@ -583,7 +641,7 @@ macro_rules! hal {
                 }
 
                 #[inline(always)]
-                fn set_nchannel_polarity(c: u8, p: Polarity) {
+                fn set_pwm_nchannel_polarity(c: u8, p: Polarity) {
                     let tim = unsafe { &*<$TIM>::ptr() };
                     if c < Self::COMP_CH_NUMBER {
                         unsafe { bb::write(tim.ccer(), c*4 + 3, p == Polarity::ActiveLow); }
@@ -663,6 +721,7 @@ macro_rules! hal {
             )?
 
             with_output!($TIM: $cnum $(, $aoe)?);
+            split!($TIM: $cnum);
         )?
 
         $(impl MasterTimer for $TIM {
