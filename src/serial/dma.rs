@@ -14,7 +14,9 @@ impl<USART: Instance, DMA: DmaExt, const C: u8> TransferPayload for RxDma<Rx<USA
     }
 }
 
-impl<USART: Instance, DMA: DmaExt, const C: u8> TransferPayload for TxDma<Tx<USART>, Ch<DMA, C>> {
+impl<USART: Instance, Otype, DMA: DmaExt, const C: u8> TransferPayload
+    for TxDma<Tx<USART, Otype>, Ch<DMA, C>>
+{
     fn start(&mut self) {
         self.channel.start();
     }
@@ -37,7 +39,7 @@ where
     }
 }
 
-impl<USART: Instance, CH> Tx<USART>
+impl<USART: Instance, Otype, CH> Tx<USART, Otype>
 where
     Self: Transmit<TxChannel = CH>,
 {
@@ -63,11 +65,11 @@ where
     }
 }
 
-impl<USART: Instance, CH> TxDma<Tx<USART>, CH>
+impl<USART: Instance, Otype, CH> TxDma<Tx<USART, Otype>, CH>
 where
     Self: TransferPayload,
 {
-    pub fn release(mut self) -> (Tx<USART>, CH) {
+    pub fn release(mut self) -> (Tx<USART, Otype>, CH) {
         self.stop();
         let usart = unsafe { &*USART::PTR };
         usart.cr3().modify(|_, w| w.dmat().clear_bit());
@@ -138,10 +140,10 @@ where
     }
 }
 
-impl<USART: Instance, DMA: DmaExt, const C: u8, B> crate::dma::WriteDma<B, u8>
-    for TxDma<Tx<USART>, Ch<DMA, C>>
+impl<USART: Instance, Otype, DMA: DmaExt, const C: u8, B> crate::dma::WriteDma<B, u8>
+    for TxDma<Tx<USART, Otype>, Ch<DMA, C>>
 where
-    Tx<USART>: Transmit<TxChannel = Ch<DMA, C>>,
+    Tx<USART, Otype>: Transmit<TxChannel = Ch<DMA, C>>,
     B: ReadBuffer<Word = u8>,
 {
     fn write(mut self, buffer: B) -> Transfer<dma::R, B, Self> {
@@ -187,7 +189,7 @@ macro_rules! serialdma {
             type TransmittedWord = u8;
         }
 
-        impl Transmit for Tx<$USARTX> {
+        impl<Otype> Transmit for Tx<$USARTX, Otype> {
             type TxChannel = $dmatxch;
             type ReceivedWord = u8;
         }
