@@ -74,5 +74,13 @@ fn main() -> ! {
     //assert_eq!(received, sent);
     asm::bkpt();
 
+    // And later reunite it again
+    let mut serial = tx.reunite(rx);
+    let sent = b'Z';
+    block!(serial.write(sent)).ok();
+    let received: u8 = block!(serial.read()).unwrap();
+    assert_eq!(received, sent);
+    asm::bkpt();
+
     loop {}
 }

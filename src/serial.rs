@@ -628,6 +628,11 @@ impl<USART: Instance, Otype> Tx<USART, Otype> {
     pub fn is_tx_complete(&self) -> bool {
         self.usart.sr().read().tc().bit_is_set()
     }
+
+    /// Reunite the two halves of a split serial
+    pub fn reunite(self, rx: Rx<USART>) -> Serial<USART, Otype> {
+        Serial { tx: self, rx }
+    }
 }
 
 impl<USART: Instance, Otype> core::fmt::Write for Tx<USART, Otype> {
@@ -715,6 +720,11 @@ impl<USART: Instance> Rx<USART> {
     pub fn clear_idle_interrupt(&self) {
         let _ = self.usart.sr().read();
         let _ = self.usart.dr().read();
+    }
+
+    /// Reunite the two halves of a split serial
+    pub fn reunite<Otype>(self, tx: Tx<USART, Otype>) -> Serial<USART, Otype> {
+        Serial { rx: self, tx }
     }
 }
 
