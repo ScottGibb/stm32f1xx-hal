@@ -227,6 +227,22 @@ pub enum Error {
     Other,
 }
 
+impl core::fmt::Display for Error {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let message = match self {
+            Error::Overrun => "serial receive buffer overrun",
+            Error::FrameFormat => "serial frame format error",
+            Error::Parity => "serial parity error",
+            Error::Noise => "serial noise error",
+            Error::Other => "serial error",
+        };
+
+        formatter.write_str(message)
+    }
+}
+
+impl core::error::Error for Error {}
+
 pub enum WordLength {
     /// When parity is enabled, a word has 7 data bits + 1 parity bit,
     /// otherwise 8 data bits.
