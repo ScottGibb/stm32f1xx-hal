@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - `rtic2` feature, renamed `rtic` to `rtic1`
 - move pin connecting to timer channels after `Pwm` initialization [#517]
 - `timer.rs` refactoring
+- bumped `embedded-io` dependency to v0.7.0 [#565]
 
 ### Changed
 
@@ -33,6 +34,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 [#553]: https://github.com/stm32-rs/stm32f1xx-hal/pull/553
 [#554]: https://github.com/stm32-rs/stm32f1xx-hal/pull/554
 [#557]: https://github.com/stm32-rs/stm32f1xx-hal/pull/557
+[#565]: https://github.com/stm32-rs/stm32f1xx-hal/pull/565
 
 ## [v0.11.0] - 2025-09-09
 
@@ -117,6 +119,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 [#528]: https://github.com/stm32-rs/stm32f1xx-hal/pull/528
 [#534]: https://github.com/stm32-rs/stm32f1xx-hal/pull/534
 [#536]: https://github.com/stm32-rs/stm32f1xx-hal/pull/536
+
 - Move from bors/manual merge to GH merge queue
 - Add tools/check.py python script for local check
 - Add changelog check on PRs
@@ -312,7 +315,6 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Fix SPI2 and 3 using the wrong frequency
 - Fix some problems with I2C reads anad writes
 
-
 ## [v0.5.0] - 2019-12-03
 
 ### Added
@@ -401,7 +403,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 ### Changed
 
 - *Breaking change* Add additional configuration options to USART.
-    - Baud rate now has to be set using configuration struct
+  - Baud rate now has to be set using configuration struct
 - Now requires stm32f1 v0.7 (breaking change)
 - enable PWM on stm32f100
 - Fix gpio misconfiguration when using a timer in pwm input mode. Now the gpio has to be configured in floating input mode.
@@ -421,9 +423,6 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 ### Fixed
 
 - Use correct clock for serial baudrate computation
-
-
-
 
 ## [v0.2.0] - 2019-02-10
 
