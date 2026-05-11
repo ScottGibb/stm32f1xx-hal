@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - `timer.rs` refactoring [#553]
 - Add `rcc::Instance` trait [#557]
 - Demacrofy `RxDma`/`TxDma` implementations [#554]
+- Move pins inside `Tx`, `Rx`
 
 ### Added
 

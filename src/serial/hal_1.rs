@@ -17,7 +17,7 @@ mod nb {
         }
     }
 
-    impl<USART: Instance> ErrorType for Tx<USART> {
+    impl<USART: Instance, Otype> ErrorType for Tx<USART, Otype> {
         type Error = Error;
     }
 
@@ -29,7 +29,7 @@ mod nb {
         type Error = Error;
     }
 
-    impl<USART: Instance> serial::Write<u8> for Tx<USART> {
+    impl<USART: Instance, Otype> serial::Write<u8> for Tx<USART, Otype> {
         fn write(&mut self, word: u8) -> nb::Result<(), Self::Error> {
             self.write_u8(word)?;
             Ok(())
@@ -40,7 +40,7 @@ mod nb {
         }
     }
 
-    impl<USART: Instance> serial::Write<u16> for Tx<USART> {
+    impl<USART: Instance, Otype> serial::Write<u16> for Tx<USART, Otype> {
         fn write(&mut self, word: u16) -> nb::Result<(), Self::Error> {
             self.write_u16(word)
         }
@@ -114,7 +114,7 @@ mod io {
         type Error = Error;
     }
 
-    impl<USART: Instance> embedded_io::ErrorType for Tx<USART> {
+    impl<USART: Instance, Otype> embedded_io::ErrorType for Tx<USART, Otype> {
         type Error = Error;
     }
 
@@ -135,7 +135,7 @@ mod io {
         }
     }
 
-    impl<USART: Instance> Write for Tx<USART> {
+    impl<USART: Instance, Otype> Write for Tx<USART, Otype> {
         fn write(&mut self, bytes: &[u8]) -> Result<usize, Self::Error> {
             let mut i = 0;
             for byte in bytes.iter() {

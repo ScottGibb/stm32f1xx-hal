@@ -89,7 +89,6 @@
 //! let received = block!(rx.read()).unwrap();
 //!  ```
 
-use core::marker::PhantomData;
 use core::sync::atomic::{self, Ordering};
 use embedded_dma::{ReadBuffer, WriteBuffer};
 
@@ -118,7 +117,7 @@ pub trait SerialExt: Sized + Instance {
         tx_pin: impl RInto<Self::Tx<Otype>, 0>,
         config: impl Into<Config>,
         rcc: &mut Rcc,
-    ) -> Tx<Self>;
+    ) -> Tx<Self, Otype>;
     fn rx(
         self,
         rx_pin: impl RInto<Self::Rx, 0>,
@@ -141,7 +140,7 @@ impl<USART: Instance> SerialExt for USART {
         tx_pin: impl RInto<Self::Tx<Otype>, 0>,
         config: impl Into<Config>,
         rcc: &mut Rcc,
-    ) -> Tx<Self> {
+    ) -> Tx<Self, Otype> {
         Serial::tx(self, tx_pin, config, rcc)
     }
     fn rx(
@@ -342,26 +341,20 @@ impl From<Bps> for Config {
 
 /// Serial abstraction
 pub struct Serial<USART: Instance, Otype = PushPull> {
-    pub tx: Tx<USART>,
+    pub tx: Tx<USART, Otype>,
     pub rx: Rx<USART>,
-    #[allow(clippy::type_complexity)]
-    pub token: ReleaseToken<USART, (Option<USART::Tx<Otype>>, Option<USART::Rx>)>,
 }
 
 /// Serial transmitter
-pub struct Tx<USART> {
-    _usart: PhantomData<USART>,
+pub struct Tx<USART: Instance, Otype = PushPull> {
+    usart: USART,
+    pin: Option<USART::Tx<Otype>>,
 }
 
 /// Serial receiver
-pub struct Rx<USART> {
-    _usart: PhantomData<USART>,
-}
-
-/// Stores data for release
-pub struct ReleaseToken<USART, PINS> {
+pub struct Rx<USART: Instance> {
     usart: USART,
-    pins: PINS,
+    pin: Option<USART::Rx>,
 }
 
 impl<USART: Instance, const R: u8> Rmp<USART, R> {
@@ -378,7 +371,7 @@ impl<USART: Instance, const R: u8> Rmp<USART, R> {
         tx_pin: impl RInto<USART::Tx<Otype>, R>,
         config: impl Into<Config>,
         rcc: &mut Rcc,
-    ) -> Tx<USART> {
+    ) -> Tx<USART, Otype> {
         Serial::_new(self.0, (Some(tx_pin), None::<USART::Rx>), config, rcc)
             .split()
             .0
@@ -406,7 +399,7 @@ impl<USART: Instance, Otype> Serial<USART, Otype> {
         tx_pin: impl RInto<USART::Tx<Otype>, R>,
         config: impl Into<Config>,
         rcc: &mut Rcc,
-    ) -> Tx<USART> {
+    ) -> Tx<USART, Otype> {
         usart.into().tx(tx_pin, config, rcc)
     }
 }
@@ -460,7 +453,7 @@ impl<USART: Instance, Otype> Serial<USART, Otype> {
         USART::enable(rcc);
         USART::reset(rcc);
 
-        apply_config::<USART>(config.into(), &rcc.clocks);
+        apply_config(&usart, config.into(), &rcc.clocks);
 
         let pins = (pins.0.map(RInto::rinto), pins.1.map(RInto::rinto));
 
@@ -475,13 +468,11 @@ impl<USART: Instance, Otype> Serial<USART, Otype> {
         });
 
         Serial {
-            tx: Tx {
-                _usart: PhantomData,
-            },
+            tx: Tx { usart, pin: pins.0 },
             rx: Rx {
-                _usart: PhantomData,
+                usart: unsafe { USART::steal() },
+                pin: pins.1,
             },
-            token: ReleaseToken { usart, pins },
         }
     }
 }
@@ -529,7 +520,7 @@ impl<USART: Instance, Otype> Serial<USART, Otype> {
     /// ```
     #[allow(clippy::type_complexity)]
     pub fn release(self) -> (USART, (Option<USART::Tx<Otype>>, Option<USART::Rx>)) {
-        (self.token.usart, self.token.pins)
+        (self.tx.usart, (self.tx.pin, self.rx.pin))
     }
 
     /// Separates the serial struct into separate channel objects for sending (Tx) and
@@ -541,14 +532,12 @@ impl<USART: Instance, Otype> Serial<USART, Otype> {
     /// ```
     /// let Serial { tx, rx, token } = serial;
     /// ```
-    pub fn split(self) -> (Tx<USART>, Rx<USART>) {
+    pub fn split(self) -> (Tx<USART, Otype>, Rx<USART>) {
         (self.tx, self.rx)
     }
 }
 
-fn apply_config<USART: Instance>(config: Config, clocks: &Clocks) {
-    let usart = unsafe { &*USART::ptr() };
-
+fn apply_config<USART: Instance>(usart: &USART, config: Config, clocks: &Clocks) {
     // Configure baud rate
     let brr = USART::Bus::clock(clocks).raw() / config.baudrate.0;
     assert!(brr >= 16, "impossible baud rate");
@@ -577,8 +566,8 @@ fn apply_config<USART: Instance>(config: Config, clocks: &Clocks) {
 ///
 /// If a transmission is currently in progress, this returns
 /// [`nb::Error::WouldBlock`].
-pub fn reconfigure<USART: Instance>(
-    tx: &mut Tx<USART>,
+pub fn reconfigure<USART: Instance, Otype>(
+    tx: &mut Tx<USART, Otype>,
     #[allow(unused_variables)] rx: &mut Rx<USART>,
     config: impl Into<Config>,
     clocks: &Clocks,
@@ -588,21 +577,19 @@ pub fn reconfigure<USART: Instance>(
     // exclusive access to the Serial instance due to &mut self -- knows
     // what they're doing.
     tx.flush()?;
-    apply_config::<USART>(config.into(), clocks);
+    apply_config(&tx.usart, config.into(), clocks);
     Ok(())
 }
 
-impl<USART: Instance> Tx<USART> {
+impl<USART: Instance, Otype> Tx<USART, Otype> {
     /// Writes 9-bit words to the UART/USART
     ///
     /// If the UART/USART was configured with `WordLength::Bits9`, the 9 least significant bits will
     /// be transmitted and the other 7 bits will be ignored. Otherwise, the 8 least significant bits
     /// will be transmitted and the other 8 bits will be ignored.
     pub fn write_u16(&mut self, word: u16) -> nb::Result<(), Error> {
-        let usart = unsafe { &*USART::ptr() };
-
-        if usart.sr().read().txe().bit_is_set() {
-            usart.dr().write(|w| w.dr().set(word));
+        if self.usart.sr().read().txe().bit_is_set() {
+            self.usart.dr().write(|w| w.dr().set(word));
             Ok(())
         } else {
             Err(nb::Error::WouldBlock)
@@ -628,9 +615,7 @@ impl<USART: Instance> Tx<USART> {
     }
 
     pub fn flush(&mut self) -> nb::Result<(), Error> {
-        let usart = unsafe { &*USART::ptr() };
-
-        if usart.sr().read().tc().bit_is_set() {
+        if self.usart.sr().read().tc().bit_is_set() {
             Ok(())
         } else {
             Err(nb::Error::WouldBlock)
@@ -643,25 +628,30 @@ impl<USART: Instance> Tx<USART> {
 
     /// Start listening for transmit interrupt event
     pub fn listen(&mut self) {
-        unsafe { (*USART::ptr()).cr1().modify(|_, w| w.txeie().set_bit()) };
+        self.usart.cr1().modify(|_, w| w.txeie().set_bit());
     }
 
     /// Stop listening for transmit interrupt event
     pub fn unlisten(&mut self) {
-        unsafe { (*USART::ptr()).cr1().modify(|_, w| w.txeie().clear_bit()) };
+        self.usart.cr1().modify(|_, w| w.txeie().clear_bit());
     }
 
     /// Returns true if the tx register is empty (and can accept data)
     pub fn is_tx_empty(&self) -> bool {
-        unsafe { (*USART::ptr()).sr().read().txe().bit_is_set() }
+        self.usart.sr().read().txe().bit_is_set()
     }
 
     pub fn is_tx_complete(&self) -> bool {
-        unsafe { (*USART::ptr()).sr().read().tc().bit_is_set() }
+        self.usart.sr().read().tc().bit_is_set()
+    }
+
+    /// Reunite the two halves of a split serial
+    pub fn reunite(self, rx: Rx<USART>) -> Serial<USART, Otype> {
+        Serial { tx: self, rx }
     }
 }
 
-impl<USART: Instance> core::fmt::Write for Tx<USART> {
+impl<USART: Instance, Otype> core::fmt::Write for Tx<USART, Otype> {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
         s.bytes()
             .try_for_each(|c| nb::block!(self.write_u8(c)))
@@ -676,8 +666,7 @@ impl<USART: Instance> Rx<USART> {
     /// 9 received data bits and all other bits set to zero. Otherwise, the returned value will contain
     /// 8 received data bits and all other bits set to zero.
     pub fn read_u16(&mut self) -> nb::Result<u16, Error> {
-        let usart = unsafe { &*USART::ptr() };
-        let sr = usart.sr().read();
+        let sr = self.usart.sr().read();
 
         // Check for any errors
         let err = if sr.pe().bit_is_set() {
@@ -695,14 +684,14 @@ impl<USART: Instance> Rx<USART> {
         if let Some(err) = err {
             // Some error occurred. In order to clear that error flag, you have to
             // do a read from the sr register followed by a read from the dr register.
-            let _ = usart.sr().read();
-            let _ = usart.dr().read();
+            let _ = self.usart.sr().read();
+            let _ = self.usart.dr().read();
             Err(nb::Error::Other(err))
         } else {
             // Check if a byte is available
             if sr.rxne().bit_is_set() {
                 // Read the received byte
-                Ok(usart.dr().read().dr().bits())
+                Ok(self.usart.dr().read().dr().bits())
             } else {
                 Err(nb::Error::WouldBlock)
             }
@@ -715,40 +704,43 @@ impl<USART: Instance> Rx<USART> {
 
     /// Start listening for receive interrupt event
     pub fn listen(&mut self) {
-        unsafe { (*USART::ptr()).cr1().modify(|_, w| w.rxneie().set_bit()) };
+        self.usart.cr1().modify(|_, w| w.rxneie().set_bit());
     }
 
     /// Stop listening for receive interrupt event
     pub fn unlisten(&mut self) {
-        unsafe { (*USART::ptr()).cr1().modify(|_, w| w.rxneie().clear_bit()) };
+        self.usart.cr1().modify(|_, w| w.rxneie().clear_bit());
     }
 
     /// Start listening for idle interrupt event
     pub fn listen_idle(&mut self) {
-        unsafe { (*USART::ptr()).cr1().modify(|_, w| w.idleie().set_bit()) };
+        self.usart.cr1().modify(|_, w| w.idleie().set_bit());
     }
 
     /// Stop listening for idle interrupt event
     pub fn unlisten_idle(&mut self) {
-        unsafe { (*USART::ptr()).cr1().modify(|_, w| w.idleie().clear_bit()) };
+        self.usart.cr1().modify(|_, w| w.idleie().clear_bit());
     }
 
     /// Returns true if the line idle status is set
     pub fn is_idle(&self) -> bool {
-        unsafe { (*USART::ptr()).sr().read().idle().bit_is_set() }
+        self.usart.sr().read().idle().bit_is_set()
     }
 
     /// Returns true if the rx register is not empty (and can be read)
     pub fn is_rx_not_empty(&self) -> bool {
-        unsafe { (*USART::ptr()).sr().read().rxne().bit_is_set() }
+        self.usart.sr().read().rxne().bit_is_set()
     }
 
     /// Clear idle line interrupt flag
     pub fn clear_idle_interrupt(&self) {
-        unsafe {
-            let _ = (*USART::ptr()).sr().read();
-            let _ = (*USART::ptr()).dr().read();
-        }
+        let _ = self.usart.sr().read();
+        let _ = self.usart.dr().read();
+    }
+
+    /// Reunite the two halves of a split serial
+    pub fn reunite<Otype>(self, tx: Tx<USART, Otype>) -> Serial<USART, Otype> {
+        Serial { rx: self, tx }
     }
 }
 
@@ -806,7 +798,7 @@ impl<USART: Instance, Otype> Serial<USART, Otype> {
     }
 }
 
-impl<USART: Instance, PINS> core::fmt::Write for Serial<USART, PINS> {
+impl<USART: Instance, Otype> core::fmt::Write for Serial<USART, Otype> {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
         self.tx.write_str(s)
     }
