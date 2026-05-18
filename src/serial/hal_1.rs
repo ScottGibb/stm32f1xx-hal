@@ -124,34 +124,37 @@ mod io {
 
     impl<USART: Instance> Read for Rx<USART> {
         fn read(&mut self, bytes: &mut [u8]) -> Result<usize, Self::Error> {
-            for (i, byte) in bytes.iter_mut().enumerate() {
-                match self.read() {
-                    Ok(b) => *byte = b,
-                    Err(nb::Error::WouldBlock) => return Ok(i),
-                    Err(nb::Error::Other(e)) => return Err(e),
-                }
+            for byte in bytes.iter_mut() {
+                *byte = nb::block!(Rx::read(self))?;
             }
+
             Ok(bytes.len())
         }
     }
 
     impl<USART: Instance, Otype> Write for Tx<USART, Otype> {
         fn write(&mut self, bytes: &[u8]) -> Result<usize, Self::Error> {
-            let mut i = 0;
-            for byte in bytes.iter() {
-                match self.write_u8(*byte) {
-                    Ok(_) => {
-                        i += 1;
+            if bytes.is_empty() {
+                return Ok(0);
+            }
+
+            // `embedded-io` is a blocking API: wait until at least one byte
+            // can be written, then send any immediately available trailing
+            // bytes.
+            nb::block!(self.write_u8(bytes[0]))?;
+
+            let mut written = 1;
+            for &byte in bytes.iter().skip(1) {
+                match self.write_u8(byte) {
+                    Ok(()) => {
+                        written += 1;
                     }
-                    Err(nb::Error::WouldBlock) => {
-                        return Ok(i);
-                    }
-                    Err(nb::Error::Other(e)) => {
-                        return Err(e);
-                    }
+                    Err(nb::Error::WouldBlock) => break,
+                    Err(nb::Error::Other(e)) => return Err(e),
                 }
             }
-            Ok(i)
+
+            Ok(written)
         }
 
         fn flush(&mut self) -> Result<(), Self::Error> {
@@ -165,13 +168,10 @@ mod io {
         Rx<USART>: Read<Error = Error>,
     {
         fn read(&mut self, bytes: &mut [u8]) -> Result<usize, Self::Error> {
-            for (i, byte) in bytes.iter_mut().enumerate() {
-                match self.rx.read() {
-                    Ok(b) => *byte = b,
-                    Err(nb::Error::WouldBlock) => return Ok(i),
-                    Err(nb::Error::Other(e)) => return Err(e),
-                }
+            for byte in bytes.iter_mut() {
+                *byte = nb::block!(self.rx.read())?;
             }
+
             Ok(bytes.len())
         }
     }
